@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# Local output
+lld_meet_email.txt
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
