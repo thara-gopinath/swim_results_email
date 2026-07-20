@@ -10,6 +10,7 @@ ENV/
 
 # Local output
 lld_meet_email.txt
+lld_meet_email.html
 
 # OS/editor noise
 .DS_Store

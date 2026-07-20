@@ -39,6 +39,7 @@ class SwimResult:
     pb: bool = False
     drop_seconds: Optional[float] = None
     team_record: bool = False
+    first_time: bool = False
 
 
 def clean_text(text: str) -> str:
@@ -117,7 +118,7 @@ def parse_results(pdf_path: Path, team_filter: str = "Lakelands") -> list[SwimRe
     # is a new team record.
     row_re = re.compile(
         rf"^(?:\*?\d+|---)\s+(.+?)\s+(\d{{1,2}})\s+({TEAM_RE})\s+"
-        rf"(NT|X?{TIME_RE})\s+((?:DQ\s+)?X?{TIME_RE}L?|NS|SCR)(?:\s+ALL\*)?$"
+        rf"(NT|X?{TIME_RE})\s+((?:DQ\s+)?X?{TIME_RE}L?|NS|SCR)(?:\s+ALL\*)?(?:\s+\d+)?$"
     )
 
     for line in lines:
@@ -158,6 +159,7 @@ def parse_results(pdf_path: Path, team_filter: str = "Lakelands") -> list[SwimRe
         all_cut_sec = time_to_seconds(current_all_star_cut or "")
         record_sec = time_to_seconds(current_lld_record or "")
 
+        first_time = seed.strip().upper() == "NT"
         pb = seed_sec is not None and final_sec is not None and final_sec < seed_sec
         drop = (seed_sec - final_sec) if pb else None
         all_star = ("ALL*" in line) or (all_cut_sec is not None and final_sec is not None and final_sec <= all_cut_sec)
@@ -178,6 +180,7 @@ def parse_results(pdf_path: Path, team_filter: str = "Lakelands") -> list[SwimRe
                 pb=pb,
                 drop_seconds=drop,
                 team_record=team_record,
+                first_time=first_time,
             )
         )
     for result in results:
@@ -245,6 +248,16 @@ _ALL_STAR_HEADINGS = [
     "ALL-STAR TIMES — LET'S HEAR IT!",
 ]
 
+_FIRST_TIME_HEADINGS = [
+    "WELCOME SPLASHES — FIRST-TIME SWIMS",
+    "MAKING A SPLASH FOR THE FIRST TIME",
+    "BRAND NEW TIMES ON THE BOARD — FIRST-TIME SWIMS",
+    "FIRST-TIME SWIMS — WAY TO GO!",
+    "DEBUT SWIMS — FINS UP!",
+    "OFFICIAL TIMES FOR THE FIRST TIME — GREAT JOB!",
+    "NEW EVENTS CONQUERED — FIRST-TIME SWIMS",
+]
+
 _PB_HEADINGS = [
     "LOUDEST HURRAYS FOR PERSONAL BESTS",
     "FINS UP FOR PERSONAL BESTS",
@@ -269,7 +282,7 @@ _PB_HEADINGS = [
 ]
 
 
-def build_email_html(results: list[SwimResult], meet_name: str) -> str:
+def build_email_html(results: list[SwimResult], meet_name: str, include_first_times: bool = True) -> str:
     """HTML version of the email. Uses <p> + <br> blocks so the layout survives
     paste into rich-text editors (Gmail, SwimTopia) that strip <div> wrappers.
     Emojis are emitted as small explicit <img> tags so SwimTopia does not
@@ -277,6 +290,11 @@ def build_email_html(results: list[SwimResult], meet_name: str) -> str:
     pbs = sorted([r for r in results if r.pb], key=lambda r: r.drop_seconds or 0, reverse=True)
     all_stars = sorted([r for r in results if r.all_star], key=lambda r: (r.swimmer, r.event_no))
     records = sorted([r for r in results if r.team_record], key=lambda r: r.event_no)
+    first_times = (
+        sorted([r for r in results if r.first_time], key=lambda r: (r.swimmer, r.event_no))
+        if include_first_times
+        else []
+    )
 
     e = _emoji  # short local alias
 
@@ -350,9 +368,22 @@ def build_email_html(results: list[SwimResult], meet_name: str) -> str:
                 )
             parts.append(swimmer_block_html(swimmer, items))
 
-    if not any([records, all_stars, pbs]):
+    if first_times:
         parts.append(divider)
-        parts.append("<p>Lots of great swims today! No PBs, All-Star times, or team records were detected from this file.</p>")
+        parts.append(f"<p><b>{e('✨')} {random.choice(_FIRST_TIME_HEADINGS)}</b></p>")
+        by_swimmer = {}
+        for r in first_times:
+            by_swimmer.setdefault(r.swimmer, []).append(r)
+        for swimmer in sorted(by_swimmer):
+            items = [
+                _html_escape(r.event_name)
+                for r in sorted(by_swimmer[swimmer], key=lambda x: x.event_no)
+            ]
+            parts.append(swimmer_block_html(swimmer, items))
+
+    if not any([records, all_stars, pbs, first_times]):
+        parts.append(divider)
+        parts.append("<p>Lots of great swims today! No PBs, All-Star times, team records, or first-time swims were detected from this file.</p>")
 
     parts.append(divider)
     parts.append("<p>Your Lakelands Lionfish Automation Team</p>")
@@ -371,18 +402,30 @@ def main() -> None:
     parser.add_argument("--team", default="Lakelands", help="Team name filter. Default: Lakelands")
     parser.add_argument("--meet", default=None, help="Meet name for the email subject")
     parser.add_argument("--out", type=Path, default=Path("lld_meet_email.txt"), help="Output email text file")
+    parser.add_argument(
+        "--first-times",
+        dest="first_times",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include a first-time swims section (swimmers with NT seed). Use --no-first-times to hide it.",
+    )
     args = parser.parse_args()
 
     results = parse_results(args.pdf, args.team)
     meet_name = args.meet or extract_meet_name(extract_pdf_text(args.pdf)) or args.pdf.stem
 
     html_out = args.out.with_suffix(".html")
-    html_out.write_text(build_email_html(results, meet_name), encoding="utf-8")
+    html_out.write_text(
+        build_email_html(results, meet_name, include_first_times=args.first_times),
+        encoding="utf-8",
+    )
 
     print(f"Parsed {len(results)} individual {args.team} results")
     print(f"Personal bests: {sum(r.pb for r in results)}")
     print(f"All-Star times: {sum(r.all_star for r in results)}")
     print(f"Team records: {sum(r.team_record for r in results)}")
+    print(f"First-time swims: {sum(r.first_time for r in results)}"
+          + ("" if args.first_times else " (hidden in email)"))
     print(f"Wrote: {args.out}")
     print(f"Wrote: {html_out}")
 
