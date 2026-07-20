@@ -4,7 +4,7 @@ Simple Hy-Tek swim results parser for LLD/Lakelands Lionfish.
 
 Usage:
   python swim_results_email.py "Meet Results-1A.pdf"
-  python swim_results_email.py "Meet Results-1A.pdf" --team "Lakelands" --out email.txt
+  python swim_results_email.py "Meet Results-1A.pdf" --team "Lakelands" --out email.html
 
 Requires:
   pip install pdfplumber
@@ -401,7 +401,7 @@ def main() -> None:
     parser.add_argument("pdf", type=Path, help="Meet results PDF")
     parser.add_argument("--team", default="Lakelands", help="Team name filter. Default: Lakelands")
     parser.add_argument("--meet", default=None, help="Meet name for the email subject")
-    parser.add_argument("--out", type=Path, default=Path("lld_meet_email.txt"), help="Output email text file")
+    parser.add_argument("--out", type=Path, default=Path("lld_meet_email.html"), help="Output email HTML file (extension is always forced to .html)")
     parser.add_argument(
         "--first-times",
         dest="first_times",
@@ -426,7 +426,6 @@ def main() -> None:
     print(f"Team records: {sum(r.team_record for r in results)}")
     print(f"First-time swims: {sum(r.first_time for r in results)}"
           + ("" if args.first_times else " (hidden in email)"))
-    print(f"Wrote: {args.out}")
     print(f"Wrote: {html_out}")
 
 
